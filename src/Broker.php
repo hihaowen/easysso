@@ -27,10 +27,10 @@ class Broker
     /**
      * Broker constructor.
      *
-     * @param $gateway
-     * @param $brokerId
-     * @param $secret
-     * @param $token
+     * @param      $gateway
+     * @param      $brokerId
+     * @param      $secret
+     * @param null $ssoUrl
      */
     public function __construct($gateway, $brokerId, $secret, $ssoUrl = null)
     {
