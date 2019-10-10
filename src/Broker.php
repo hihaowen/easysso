@@ -51,7 +51,9 @@ class Broker
     }
 
     /**
-     * 服务端登录同步调用
+     * @param $params
+     *
+     * @throws SSOException
      */
     protected function syncLogin($params)
     {
