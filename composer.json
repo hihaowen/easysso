@@ -1,6 +1,9 @@
 {
     "name": "easysso",
     "description": "SSO",
+    "type": "library",
+    "homepage": "https://github.com/hihaowen/easysso",
+    "license": "MIT",
     "keywords": ["sso", "auth"],
     "support": {
         "issues": "https://github.com/hihaowen/easysso/issues",
