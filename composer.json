@@ -1,0 +1,20 @@
+{
+    "name": "easysso",
+    "description": "SSO",
+    "keywords": ["sso", "auth"],
+    "support": {
+        "issues": "https://github.com/hihaowen/easysso/issues",
+        "source": "https://github.com/hihaowen/easysso"
+    },
+    "require": {
+        "php": ">=5.5.0"
+    },
+    "require-dev": {
+    },
+    "autoload": {
+        "psr-4": {
+            "Hihaowen\\SSO\\": "src/"
+        }
+    }
+}
+
