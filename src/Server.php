@@ -19,8 +19,6 @@ abstract class Server
      */
     protected function onLogout($brokerId, $token)
     {
-        $response = [];
-
         // 清空 server session
         $sessionId = $this->storage()->get('sso_broker_' . $brokerId . '_' . $token);
         if ( empty($sessionId) ) {
@@ -35,6 +33,13 @@ abstract class Server
         session_start();
 
         unset($_SESSION['login_id'], $_SESSION['login_name']);
+
+        return $this->destroyLoginSession($sessionId);
+    }
+
+    private function destroyLoginSession($sessionId)
+    {
+        $response = [];
 
         // 清空 brokers cache、server session cache、通知各个 broker 退出
         $brokerTokens = $this->storage()->sMembers('sso_brokers_' . $sessionId);
@@ -79,9 +84,11 @@ abstract class Server
         $response = [];
 
         // 清空 server session
-        $sessionId = $this->storage()->get('sso_broker_' . $brokerId . '_' . $token);
+        $loginSessionKey = 'sso_broker_' . $brokerId . '_' . $token;
+        $sessionId       = $this->storage()->get($loginSessionKey);
         if ( empty($sessionId) ) {
-            throw new SSOException('获取服务端session_id失败');
+            // @TODO log
+            throw new SSOException('获取服务端session_id(' . $loginSessionKey . ')失败');
         }
 
         if ( session_status() === PHP_SESSION_ACTIVE ) {
@@ -91,10 +98,51 @@ abstract class Server
         session_id($sessionId);
         session_start();
 
+        if (empty($_SESSION['login_id']) || empty($_SESSION['login_name'])) {
+            throw new SSOException('用户信息已过期');
+        }
+
         $response['login_id']   = $_SESSION['login_id'];
         $response['login_name'] = $_SESSION['login_name'];
 
         return $response;
+    }
+
+    /**
+     * 服务端获取当前登录用户信息
+     *
+     * @return LoginUserContext
+     */
+    public function user(): LoginUserContext
+    {
+        // 开启会话
+        if ( session_status() != PHP_SESSION_ACTIVE ) {
+            session_start();
+        }
+
+        $loginUser = new LoginUser();
+
+        // 未登录
+        if ( empty($_SESSION['login_id']) ) {
+            return $loginUser;
+        }
+
+        $loginUser->setLoginId($_SESSION['login_id']);
+        $loginUser->setLoginName($_SESSION['login_name']);
+
+        return $loginUser;
+    }
+
+    public function logout()
+    {
+        // 开启会话
+        if ( session_status() != PHP_SESSION_ACTIVE ) {
+            session_start();
+        }
+
+        unset($_SESSION['login_id'], $_SESSION['login_name']);
+
+        return $this->destroyLoginSession(session_id());
     }
 
     /**

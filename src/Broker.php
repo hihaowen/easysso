@@ -20,7 +20,7 @@ class Broker
 
     private $token;
 
-    private $ssoUrl;
+    private $ssoLoginUrl;
 
     use TokenHelper;
 
@@ -30,19 +30,14 @@ class Broker
      * @param      $gateway
      * @param      $brokerId
      * @param      $secret
-     * @param null $ssoUrl
+     * @param null $ssoLoginUrl
      */
-    public function __construct($gateway, $brokerId, $secret, $ssoUrl = null)
+    public function __construct($gateway, $brokerId, $secret, $ssoLoginUrl = null)
     {
-        $this->gateway  = $gateway;
-        $this->brokerId = $brokerId;
-        $this->secret   = $secret;
-        $this->ssoUrl   = $ssoUrl;
-
-        if ( !$this->token ) {
-            header('Location: ' . $ssoUrl, 302);
-            exit;
-        }
+        $this->gateway     = $gateway;
+        $this->brokerId    = $brokerId;
+        $this->secret      = $secret;
+        $this->ssoLoginUrl = $ssoLoginUrl;
 
         $this->token = null;
         if ( isset($_COOKIE[$this->getCookieName($this->brokerId)]) ) {
@@ -57,15 +52,15 @@ class Broker
      */
     protected function syncLogin($params)
     {
-        parse_str($params, $paramsArr);
-
-        $brokerId = $paramsArr['broker_id'];
-        $token    = $paramsArr['token'];
-        $checkSum = $paramsArr['check_sum'];
+        $brokerId = $params['broker_id'];
+        $token    = $params['token'];
+        $checkSum = $params['check_sum'];
 
         if ( !$this->generateSum($brokerId, $this->secret, $token) === $checkSum ) {
             throw new SSOException('错误的签名');
         }
+
+        header('P3P: CP="CURa ADMa DEVa PSAo PSDo OUR BUS UNI PUR INT DEM STA PRE COM NAV OTC NOI DSP COR"');
 
         setcookie($this->getCookieName($this->brokerId), $token);
     }
@@ -75,15 +70,15 @@ class Broker
      */
     protected function syncLogout($params)
     {
-        parse_str($params, $paramsArr);
-
-        $brokerId = $paramsArr['broker_id'];
-        $token    = $paramsArr['token'];
-        $checkSum = $paramsArr['check_sum'];
+        $brokerId = $params['broker_id'];
+        $token    = $params['token'];
+        $checkSum = $params['check_sum'];
 
         if ( !$this->generateSum($brokerId, $this->secret, $token) === $checkSum ) {
             throw new SSOException('错误的签名');
         }
+
+        header('P3P: CP="CURa ADMa DEVa PSAo PSDo OUR BUS UNI PUR INT DEM STA PRE COM NAV OTC NOI DSP COR"');
 
         setcookie($this->getCookieName($this->brokerId), null);
     }
@@ -92,14 +87,14 @@ class Broker
      * 提供对外暴露的方法
      *
      * @param        $command
-     * @param string $params
+     * @param array  $params
      *
      * @return mixed
      * @throws SSOException
      */
-    public function facade($command, $params)
+    public function facade($command, array $params)
     {
-        if ( !in_array($command, ['logout', 'logout']) ) {
+        if ( !in_array($command, ['login', 'logout']) ) {
             throw new SSOException('不支持的命令: ' . $command);
         }
 
@@ -115,8 +110,8 @@ class Broker
      */
     public function user(): LoginUserContext
     {
-        if ( empty($this->token) ) {
-            throw new SSOException('未登录');
+        if ( !$this->token ) {
+            throw new NeedLoginException('未登录: ' . $this->ssoLoginUrl, 302);
         }
 
         $res = $this->request('user', [
@@ -129,7 +124,14 @@ class Broker
             throw new SSOException('获取失败, code: ' . $res['status']);
         }
 
-        return json_decode($res['response'], true);
+        $loginId   = $res['response']['login_id'] ?? null;
+        $loginName = $res['response']['login_name'] ?? null;
+
+        $loginUser = new LoginUser();
+        $loginUser->setLoginId($loginId);
+        $loginUser->setLoginName($loginName);
+
+        return $loginUser;
     }
 
     /**
@@ -151,7 +153,7 @@ class Broker
             throw new SSOException('获取失败, code: ' . $res['status']);
         }
 
-        return true;
+        return $res['response'] ?? [];
     }
 
     /**
@@ -170,8 +172,8 @@ class Broker
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 
         // set timeout
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 1);
-        curl_setopt($ch, CURLOPT_TIMEOUT_MS, 2);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 1000);
+        curl_setopt($ch, CURLOPT_TIMEOUT_MS, 2000);
 
 //        curl_setopt($ch, CURLOPT_HTTPHEADER, [
 //            'SSO_TOKEN' => $token,
@@ -197,9 +199,18 @@ class Broker
             throw new SSOException('返回数据为空或格式错误');
         }
 
+        // json格式
+        $response = json_decode($response, true);
+        $errorNo  = $response['errno'] ?? 1;
+        $error    = $response['error'] ?? '';
+        $data     = $response['data'] ?? [];
+        if ( $errorNo != 0 ) {
+            throw new SSOException('调用错误: ' . $error);
+        }
+
         return [
             'status'   => curl_getinfo($ch, CURLINFO_HTTP_CODE),
-            'response' => $response,
+            'response' => $data,
         ];
     }
 }
