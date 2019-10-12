@@ -120,12 +120,8 @@ class Broker
             'check_sum' => $this->generateSum($this->brokerId, $this->secret, $this->token),
         ]);
 
-        if ( $res['status'] != 200 ) {
-            throw new SSOException('获取失败, code: ' . $res['status']);
-        }
-
-        $loginId   = $res['response']['login_id'] ?? null;
-        $loginName = $res['response']['login_name'] ?? null;
+        $loginId   = $res['data']['login_id'] ?? null;
+        $loginName = $res['data']['login_name'] ?? null;
 
         $loginUser = new LoginUser();
         $loginUser->setLoginId($loginId);
@@ -149,11 +145,7 @@ class Broker
             'check_sum' => $this->generateSum($this->brokerId, $this->secret, $this->token),
         ]);
 
-        if ( $res['status'] != 200 ) {
-            throw new SSOException('获取失败, code: ' . $res['status']);
-        }
-
-        return $res['response'] ?? [];
+        return $res['data'] ?? [];
     }
 
     /**
@@ -199,18 +191,29 @@ class Broker
             throw new SSOException('返回数据为空或格式错误');
         }
 
+        // http code error
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        if ( $status != 200 ) {
+            throw new SSOException('获取失败, code: ' . $status);
+        }
+
         // json格式
         $response = json_decode($response, true);
         $errorNo  = $response['errno'] ?? 1;
         $error    = $response['error'] ?? '';
         $data     = $response['data'] ?? [];
+
         if ( $errorNo != 0 ) {
-            throw new SSOException('调用错误: ' . $error);
+            if ($errorNo) {
+                throw new NeedLoginException('需要重新登录');
+            }
+            throw new SSOException('获取失败, code: ' . $error);
         }
 
         return [
-            'status'   => curl_getinfo($ch, CURLINFO_HTTP_CODE),
-            'response' => $data,
+            'errno' => $errorNo,
+            'error' => $error,
+            'data'  => $data,
         ];
     }
 }

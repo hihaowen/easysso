@@ -87,19 +87,18 @@ abstract class Server
         $loginSessionKey = 'sso_broker_' . $brokerId . '_' . $token;
         $sessionId       = $this->storage()->get($loginSessionKey);
         if ( empty($sessionId) ) {
-            // @TODO log
-            throw new SSOException('获取服务端session_id(' . $loginSessionKey . ')失败');
+            throw new NeedLoginException('获取服务端session_id(' . $loginSessionKey . ')失败');
         }
 
         if ( session_status() === PHP_SESSION_ACTIVE ) {
-            throw new SSOException('session 已经启动了');
+            throw new NeedLoginException('session 已经启动了');
         }
 
         session_id($sessionId);
         session_start();
 
-        if (empty($_SESSION['login_id']) || empty($_SESSION['login_name'])) {
-            throw new SSOException('用户信息已过期');
+        if ( empty($_SESSION['login_id']) || empty($_SESSION['login_name']) ) {
+            throw new NeedLoginException('用户信息已过期');
         }
 
         $response['login_id']   = $_SESSION['login_id'];
@@ -150,9 +149,15 @@ abstract class Server
      *
      * @param LoginUserContext $loginUserContext
      */
-    public function login(LoginUserContext $loginUserContext)
+    public function login(LoginUserContext $loginUserContext, $returnUrl = null)
     {
         $response = [];
+
+        // 验证来源
+        // $returnUrl = urldecode($returnUrl);
+        if ( !$this->checkReturnUrl($returnUrl) ) {
+            throw new SSOException('请求来源不合法');
+        }
 
         // 登录用户
         $loginId = $loginUserContext->loginId();
@@ -196,8 +201,47 @@ abstract class Server
 
         $response['login_id']   = $_SESSION['login_id'];
         $response['login_name'] = $_SESSION['login_name'];
+        $response['return_url'] = $returnUrl;
 
         return $response;
+    }
+
+    /**
+     * 验证返回url是否合法
+     *
+     * @param $originReturnUrl
+     *
+     * @return bool
+     */
+    private function checkReturnUrl($originReturnUrl)
+    {
+        if ( empty($originReturnUrl) ) {
+            return true;
+        }
+
+        $originHost = parse_url($originReturnUrl, PHP_URL_HOST);
+        if ( !$originHost ) {
+            return false;
+        }
+
+        $self = $_SERVER['SERVER_NAME'];
+        if ( $originHost === $self ) {
+            return true;
+        }
+
+        $isValid = false;
+
+        foreach ($this->brokers() as $broker) {
+            if ( empty($broker['host']) ) {
+                continue;
+            }
+            if ( $originHost === $broker['host'] ) {
+                $isValid = true;
+                break;
+            }
+        }
+
+        return $isValid;
     }
 
     /**
