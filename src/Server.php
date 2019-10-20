@@ -153,12 +153,6 @@ abstract class Server
     {
         $response = [];
 
-        // 验证来源
-        // $returnUrl = urldecode($returnUrl);
-        if ( !$this->checkReturnUrl($returnUrl) ) {
-            throw new SSOException('请求来源不合法');
-        }
-
         // 登录用户
         $loginId = $loginUserContext->loginId();
         if ( empty($loginId) ) {
@@ -207,6 +201,54 @@ abstract class Server
     }
 
     /**
+     * 通知单个Broker登录
+     *
+     * @param      $brokerId
+     * @param null $returnUrl
+     *
+     * @return array
+     * @throws SSOException
+     */
+    public function syncOneBrokerLogin($brokerId, $returnUrl = null)
+    {
+        // 开启会话
+        if ( session_status() != PHP_SESSION_ACTIVE ) {
+            session_start();
+        }
+
+        // 同步登录状态
+        $sessionId = session_id();
+
+        // 新生成用户在 broker 上的token
+        $token = $this->generateBrokerToken($brokerId);
+
+        // 保存登录用户在 broker 上的 token
+        $tokenCacheSuffixKey = $brokerId . '_' . $token;
+        $this->storage()->set('sso_broker_' . $tokenCacheSuffixKey, $sessionId);
+
+        // 便于通过 session_id 反查用户在 broker 上的 token
+        $this->storage()->sAdd('sso_brokers_' . $sessionId, $tokenCacheSuffixKey);
+
+        $syncUrl   = $this->brokers()[$brokerId]['sync_url'] ?? '';
+        $secret    = $this->brokers()[$brokerId]['secret'] ?? '';
+        $urlParams = [
+            'command'   => 'login',
+            'broker_id' => $brokerId,
+            'token'     => $token,
+            'check_sum' => $this->generateSum($brokerId, $secret, $token),
+        ];
+
+        $response = [];
+
+        $response['script_src'][] = $syncUrl . '?' . http_build_query($urlParams);
+        $response['login_id']     = $_SESSION['login_id'];
+        $response['login_name']   = $_SESSION['login_name'];
+        $response['return_url']   = $returnUrl;
+
+        return $response;
+    }
+
+    /**
      * 验证返回url是否合法
      *
      * @param $originReturnUrl
@@ -245,6 +287,41 @@ abstract class Server
     }
 
     /**
+     * 初始化 Broker 请求参数
+     *
+     * @param array $params
+     *
+     * @return array
+     * @throws SSOException
+     */
+    public function initBrokerParams(array $params)
+    {
+        // 验证来源
+        $returnUrl = $params['return_url'] ?? null;
+        $returnUrl = urldecode($returnUrl);
+        if ( !$this->checkReturnUrl($returnUrl) ) {
+            throw new SSOException('请求来源不合法');
+        }
+
+        // 验签
+        $token    = $params['token'] ?? '';
+        $brokerId = $params['broker_id'] ?? '';
+        $checkSum = $params['check_sum'] ?? '';
+        $secret   = $this->brokers()[$brokerId]['secret'] ?? '';
+        if ( !$this->checkSum($brokerId, $secret, $token, $checkSum) ) {
+            throw new SSOException('验签失败');
+        }
+
+        return [
+            'token'      => $token,
+            'broker_id'  => $brokerId,
+            'check_sum'  => $checkSum,
+            'secret'     => $secret,
+            'return_url' => $returnUrl,
+        ];
+    }
+
+    /**
      * 提供对外 broker 暴露的方法
      *
      * @param       $command
@@ -259,19 +336,9 @@ abstract class Server
             throw new SSOException('不支持的命令: ' . $command);
         }
 
-        // 验签
-        $token    = $params['token'] ?? '';
-        $brokerId = $params['broker_id'] ?? '';
-        $checkSum = $params['check_sum'] ?? '';
-        $secret   = $this->brokers()[$brokerId]['secret'] ?? '';
-
-        if ( !$this->checkSum($brokerId, $secret, $token, $checkSum) ) {
-            throw new SSOException('验签失败');
-        }
-
         $method = 'on' . ucfirst($command);
 
-        return $this->$method($brokerId, $token);
+        return $this->$method($params['broker_id'], $params['token']);
     }
 
     /**
