@@ -238,14 +238,12 @@ abstract class Server
             'check_sum' => $this->generateSum($brokerId, $secret, $token),
         ];
 
-        $response = [];
+        echo sprintf('<script type="text/javascript" src="%s"></script>', $syncUrl . '?' . http_build_query($urlParams));
 
-        $response['script_src'][] = $syncUrl . '?' . http_build_query($urlParams);
-        $response['login_id']     = $_SESSION['login_id'];
-        $response['login_name']   = $_SESSION['login_name'];
-        $response['return_url']   = $returnUrl;
+        echo '正在返回，请稍后 ...';
 
-        return $response;
+        header('Refresh: 2; url=' . $returnUrl, true, 302);
+        exit;
     }
 
     /**
@@ -255,7 +253,7 @@ abstract class Server
      *
      * @return bool
      */
-    private function checkReturnUrl($originReturnUrl)
+    public function getBrokerIdByReturnUrl($originReturnUrl)
     {
         if ( empty($originReturnUrl) ) {
             return true;
@@ -271,54 +269,18 @@ abstract class Server
             return true;
         }
 
-        $isValid = false;
-
-        foreach ($this->brokers() as $broker) {
+        $hitBrokerId = null;
+        foreach ($this->brokers() as $brokerId => $broker) {
             if ( empty($broker['host']) ) {
                 continue;
             }
             if ( $originHost === $broker['host'] ) {
-                $isValid = true;
+                $hitBrokerId = $brokerId;
                 break;
             }
         }
 
-        return $isValid;
-    }
-
-    /**
-     * 初始化 Broker 请求参数
-     *
-     * @param array $params
-     *
-     * @return array
-     * @throws SSOException
-     */
-    public function initBrokerParams(array $params)
-    {
-        // 验证来源
-        $returnUrl = $params['return_url'] ?? null;
-        $returnUrl = urldecode($returnUrl);
-        if ( !$this->checkReturnUrl($returnUrl) ) {
-            throw new SSOException('请求来源不合法');
-        }
-
-        // 验签
-        $token    = $params['token'] ?? '';
-        $brokerId = $params['broker_id'] ?? '';
-        $checkSum = $params['check_sum'] ?? '';
-        $secret   = $this->brokers()[$brokerId]['secret'] ?? '';
-        if ( !$this->checkSum($brokerId, $secret, $token, $checkSum) ) {
-            throw new SSOException('验签失败');
-        }
-
-        return [
-            'token'      => $token,
-            'broker_id'  => $brokerId,
-            'check_sum'  => $checkSum,
-            'secret'     => $secret,
-            'return_url' => $returnUrl,
-        ];
+        return $hitBrokerId;
     }
 
     /**
@@ -336,9 +298,18 @@ abstract class Server
             throw new SSOException('不支持的命令: ' . $command);
         }
 
+        // 验签
+        $token    = $params['token'] ?? '';
+        $brokerId = $params['broker_id'] ?? '';
+        $checkSum = $params['check_sum'] ?? '';
+        $secret   = $this->brokers()[$brokerId]['secret'] ?? '';
+        if ( !$this->checkSum($brokerId, $secret, $token, $checkSum) ) {
+            throw new SSOException('验签失败: ' . print_r($params, true));
+        }
+
         $method = 'on' . ucfirst($command);
 
-        return $this->$method($params['broker_id'], $params['token']);
+        return $this->$method($brokerId, $token);
     }
 
     /**

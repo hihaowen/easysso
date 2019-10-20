@@ -22,6 +22,7 @@ try {
 
     if ( !empty($_REQUEST['command']) ) { // 处理服务端发来的请求
         $broker->facade($_REQUEST['command'], $_REQUEST);
+        exit;
     } elseif ( $action === 'logout' ) {
         $broker->logout();
         echo 'ok';
